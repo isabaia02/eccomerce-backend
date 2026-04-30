@@ -51,20 +51,4 @@ class EcommerceApp {
     return this.pedido;
   }
 }
-
 module.exports = EcommerceApp;
-
-// if (require.main === module) {
-//   const app = new EcommerceApp();
-  
-//   app.inicializar().then(() => {
-//     console.log('\nBiblioteca E-commerce pronta para uso!');
-//     console.log('Importe EcommerceApp e acesse:');
-//     console.log('  - app.getProduto()  // Gerenciar produtos');
-//     console.log('  - app.getUsuario()  // Gerenciar usuários');
-//     console.log('  - app.getPedido()   // Gerenciar pedidos');
-//   }).catch(error => {
-//     console.error('Erro fatal:', error.message);
-//     process.exit(1);
-//   });
-// }
