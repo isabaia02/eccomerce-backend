@@ -1,7 +1,7 @@
 const DatabaseConnection = require('./database/connection');
-const Produto = require('./classes/Produto');
-const Usuario = require('./classes/Usuario');
-const Pedido = require('./classes/Pedido');
+const Produto = require('./models/Produto');
+const Usuario = require('./models/Usuario');
+const Pedido = require('./models/Pedido');
 const Logger = require('./utils/logger');
 
 class EcommerceApp {

@@ -1,21 +1,26 @@
 # E-commerce Backend - Projeto EC48B
 
-Biblioteca de acesso a banco de dados MongoDB em Node.js puro para gerenciar um e-commerce.
+API de e-commerce em Node.js com Express, MongoDB e sessões para autenticação de usuários, organizada em MVC.
 
 ## Estrutura do Projeto
 ```
 ecommerce-backend/
 ├── src/
-│   ├── classes/
+│   ├── app.js            # Configuração do Express e middlewares
+│   ├── controllers/      # Regras de entrada HTTP
+│   ├── models/
 │   │   ├── Produto.js      # Classe de gerenciamento de produtos
 │   │   ├── Usuario.js      # Classe de gerenciamento de usuários
 │   │   └── Pedido.js       # Classe de gerenciamento de pedidos
 │   ├── database/
 │   │   └── connection.js   # Gerenciador de conexão MongoDB
+│   ├── middlewares/      # Autenticação e validações de request
+│   ├── routes/           # Rotas da API por recurso
 │   ├── utils/
 │   │   ├── logger.js       # Sistema de logging
 │   │   └── validator.js    # Validação de dados
-│   └── index.js            # Arquivo principal
+│   ├── index.js            # Camada de domínio e acesso aos modelos
+│   └── server.js           # Bootstrap do servidor HTTP
 ├── tests/
 │   └── test.js             # Exemplos de uso
 ├── logs/                   # Armazenamento dos arquivos de log
@@ -24,6 +29,13 @@ ecommerce-backend/
 ```
 
 ## Funcionalidades
+### MVC Aplicado
+
+- **Models**: as classes em `src/classes` continuam concentrando a regra de domínio e o acesso ao MongoDB.
+- **Controllers**: `src/controllers` recebe a requisição, chama o model e devolve JSON.
+- **Routes**: `src/routes` organiza os endpoints por recurso.
+- **Middlewares**: `src/middlewares` concentra autenticação e regras de acesso.
+
 ### 3 Coleções MongoDB Implementadas
 
 1. **Produtos** - Armazenamento e busca de produtos
@@ -46,7 +58,9 @@ ecommerce-backend/
 - **Validação de Dados**: Verificação de campos obrigatórios e validação de tipos
 - **Tratamento de Erros**: Exceções capturadas e registradas
 - **Sistema de Logging**: Registro de operações em arquivos de log
-- **Node.js Puro**: Sem frameworks, apenas MongoDB driver
+- **API REST com Express**: Rotas JSON para produtos, usuários e pedidos
+- **Sessões**: Login com `express-session` para proteger rotas autenticadas
+- **Controle de Estoque**: Validação antes de criar pedido e baixa automática ao finalizar
 
 ## Instalação
 
@@ -79,6 +93,32 @@ const usuario = app.getUsuario();
 const pedido = app.getPedido();
 ```
 
+## API Express
+
+Execute a aplicação com:
+
+```bash
+npm start
+```
+
+Rotas principais:
+
+- `POST /api/login` - autentica o usuário e cria a sessão
+- `POST /api/logout` - encerra a sessão
+- `GET /api/sessao` - mostra o estado atual da sessão
+- `GET /api/produtos` e `POST /api/produtos`
+- `GET /api/usuarios` e `POST /api/usuarios`
+- `GET /api/pedidos` e `POST /api/pedidos`
+- `POST /api/pedidos/:id/finalizar` - finaliza o pedido e baixa o estoque
+
+Exemplo de login:
+
+```bash
+curl -X POST http://localhost:3000/api/login \
+   -H "Content-Type: application/json" \
+   -d '{"email":"maria@example.com","senha":"123456"}'
+```
+
 ## Executar Testes
 
 ```bash
@@ -109,13 +149,16 @@ Exemplo de entrada de log:
 - Nome obrigatório com mínimo 3 caracteres
 - Email válido e único
 - Telefone obrigatório com mínimo 8 caracteres
+- Senha opcional na camada da classe; quando informada, é armazenada com hash e validada no login
 
 ### Classe Pedido
 - Usuário e itens obrigatórios
 - Lista de itens não pode estar vazia
 - IDs de usuário e produto devem ser válidos
 - Quantidade e preço devem ser positivos
-- Status pré-definidos: pendente, processando, enviado, entregue, cancelado
+- Estoque é validado antes de criar o pedido
+- Status pré-definidos: pendente, processando, finalizado, enviado, entregue, cancelado
+- Ao finalizar o pedido, o estoque dos produtos é atualizado automaticamente
 
 ## Tratamento de Erros
 
@@ -136,3 +179,7 @@ try {
 - **URL MongoDB**: `mongodb://localhost:27017`
 - **Nome do banco**: `ecommerce`
 - **Diretório de logs**: `logs/`
+
+## Observação sobre login
+
+Para usar a API com autenticação, cadastre usuários informando o campo `senha` no `POST /api/usuarios`. A autenticação aceita usuários antigos com senha em texto puro e migra automaticamente para hash no primeiro login; usuários sem senha continuam válidos apenas para os exemplos legados sem autenticação.

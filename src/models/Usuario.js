@@ -1,4 +1,5 @@
 const { ObjectId } = require('mongodb');
+const crypto = require('crypto');
 const Validator = require('../utils/validator');
 const Logger = require('../utils/logger');
 
@@ -13,26 +14,78 @@ class Usuario {
     return this.db.getCollection(this.collectionName);
   }
 
+  normalizarEmail(email) {
+    return String(email).trim().toLowerCase();
+  }
+
+  gerarHashSenha(senha) {
+    const iterations = 120000;
+    const keyLength = 64;
+    const digest = 'sha512';
+    const salt = crypto.randomBytes(16).toString('hex');
+    const hash = crypto.pbkdf2Sync(senha, salt, iterations, keyLength, digest).toString('hex');
+
+    return `pbkdf2$${iterations}$${salt}$${hash}`;
+  }
+
+  validarSenhaHash(senhaDigitada, senhaArmazenada) {
+    if (typeof senhaArmazenada !== 'string' || senhaArmazenada.length === 0) {
+      return false;
+    }
+
+    if (!senhaArmazenada.startsWith('pbkdf2$')) {
+      return senhaDigitada === senhaArmazenada;
+    }
+
+    const partes = senhaArmazenada.split('$');
+    if (partes.length !== 4) {
+      return false;
+    }
+
+    const [, iterationsTexto, salt, hashEsperado] = partes;
+    const iterations = Number.parseInt(iterationsTexto, 10);
+
+    if (!Number.isInteger(iterations) || !salt || !hashEsperado) {
+      return false;
+    }
+
+    const hashCalculado = crypto.pbkdf2Sync(senhaDigitada, salt, iterations, hashEsperado.length / 2, 'sha512').toString('hex');
+
+    if (hashCalculado.length !== hashEsperado.length) {
+      return false;
+    }
+
+    return crypto.timingSafeEqual(Buffer.from(hashCalculado, 'hex'), Buffer.from(hashEsperado, 'hex'));
+  }
+
   async inserir(usuarioData) {
     try {
       Validator.validateRequired(usuarioData, ['nome', 'email', 'telefone']);
       Validator.validateString(usuarioData.nome, 'Nome', 3);
-      Validator.validateEmail(usuarioData.email);
+      const emailNormalizado = this.normalizarEmail(usuarioData.email);
+      Validator.validateEmail(emailNormalizado);
       Validator.validateString(usuarioData.telefone, 'Telefone', 8);
 
+      if (usuarioData.senha !== undefined && usuarioData.senha !== null && usuarioData.senha !== '') {
+        Validator.validateString(usuarioData.senha, 'Senha', 4);
+      }
+
       const collection = await this.getCollection();
-      const emailExistente = await collection.findOne({ email: usuarioData.email.toLowerCase() });
+      const emailExistente = await collection.findOne({ email: emailNormalizado });
       
       if (emailExistente) {
         throw new Error(`Email já cadastrado: ${usuarioData.email}`);
       }
 
+      const senhaHash = usuarioData.senha ? this.gerarHashSenha(usuarioData.senha) : null;
+
       const usuario = {
         nome: usuarioData.nome.trim(),
-        email: usuarioData.email.toLowerCase().trim(),
+        email: emailNormalizado,
         telefone: usuarioData.telefone.trim(),
         endereco: usuarioData.endereco || null,
         cpf: usuarioData.cpf || null,
+        senha: senhaHash,
         dataCriacao: new Date(),
         dataAtualizacao: new Date(),
         ativo: true
@@ -71,11 +124,12 @@ class Usuario {
 
   async buscarPorEmail(email) {
     try {
-      Validator.validateEmail(email);
+      const emailNormalizado = this.normalizarEmail(email);
+      Validator.validateEmail(emailNormalizado);
 
       const collection = await this.getCollection();
       const usuario = await collection.findOne({ 
-        email: email.toLowerCase(),
+        email: emailNormalizado,
         ativo: true
       });
 
@@ -87,6 +141,37 @@ class Usuario {
       return usuario;
     } catch (error) {
       this.logger.error(`Erro ao buscar usuário por email: ${error.message}`, error);
+      throw error;
+    }
+  }
+
+  async autenticar(email, senha) {
+    try {
+      const emailNormalizado = this.normalizarEmail(email);
+      Validator.validateEmail(emailNormalizado);
+      Validator.validateString(senha, 'Senha', 1);
+
+      const usuario = await this.buscarPorEmail(emailNormalizado);
+
+      if (!usuario || !this.validarSenhaHash(senha, usuario.senha)) {
+        const error = new Error('Credenciais inválidas');
+        error.statusCode = 401;
+        throw error;
+      }
+
+      if (!usuario.senha.startsWith('pbkdf2$')) {
+        const collection = await this.getCollection();
+        const senhaHash = this.gerarHashSenha(senha);
+        await collection.updateOne(
+          { _id: usuario._id },
+          { $set: { senha: senhaHash, dataAtualizacao: new Date() } }
+        );
+        usuario.senha = senhaHash;
+      }
+
+      return usuario;
+    } catch (error) {
+      this.logger.error(`Erro ao autenticar usuário: ${error.message}`, error);
       throw error;
     }
   }
@@ -122,9 +207,10 @@ class Usuario {
       const objectId = new ObjectId(idString);
 
       if (atualizacoes.email) {
-        Validator.validateEmail(atualizacoes.email);
+        const emailNormalizado = this.normalizarEmail(atualizacoes.email);
+        Validator.validateEmail(emailNormalizado);
         const emailExistente = await collection.findOne({ 
-          email: atualizacoes.email.toLowerCase(),
+          email: emailNormalizado,
           _id: { $ne: objectId }
         });
         
@@ -132,7 +218,16 @@ class Usuario {
           throw new Error(`Email já cadastrado: ${atualizacoes.email}`);
         }
         
-        atualizacoes.email = atualizacoes.email.toLowerCase();
+        atualizacoes.email = emailNormalizado;
+      }
+
+      if (Object.prototype.hasOwnProperty.call(atualizacoes, 'senha')) {
+        if (atualizacoes.senha === undefined || atualizacoes.senha === null || atualizacoes.senha === '') {
+          throw new Error('Senha não pode ser vazia');
+        }
+
+        Validator.validateString(atualizacoes.senha, 'Senha', 4);
+        atualizacoes.senha = this.gerarHashSenha(atualizacoes.senha);
       }
 
       if (atualizacoes.nome) {

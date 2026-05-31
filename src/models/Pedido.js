@@ -13,6 +13,44 @@ class Pedido {
     return this.db.getCollection(this.collectionName);
   }
 
+  async getProdutoCollection() {
+    return this.db.getCollection('produtos');
+  }
+
+  async validarEstoqueItens(itens) {
+    const produtoCollection = await this.getProdutoCollection();
+
+    for (const item of itens) {
+      const produto = await produtoCollection.findOne({ _id: new ObjectId(item.produtoId), ativo: true });
+
+      if (!produto) {
+        throw new Error(`Produto não encontrado com ID: ${item.produtoId}`);
+      }
+
+      if (produto.estoque < item.quantidade) {
+        throw new Error(`Estoque insuficiente para o produto ${produto.nome}. Disponível: ${produto.estoque}, solicitado: ${item.quantidade}`);
+      }
+    }
+  }
+
+  async atualizarEstoqueAoFinalizar(itens) {
+    const produtoCollection = await this.getProdutoCollection();
+
+    for (const item of itens) {
+      const resultado = await produtoCollection.updateOne(
+        { _id: new ObjectId(item.produtoId), ativo: true, estoque: { $gte: item.quantidade } },
+        {
+          $inc: { estoque: -item.quantidade },
+          $set: { dataAtualizacao: new Date() }
+        }
+      );
+
+      if (resultado.matchedCount === 0) {
+        throw new Error(`Não foi possível atualizar o estoque do produto ${item.produtoId}`);
+      }
+    }
+  }
+
   async inserir(pedidoData) {
     try {
       Validator.validateRequired(pedidoData, ['usuarioId', 'itens']);
@@ -39,6 +77,8 @@ class Pedido {
         throw new Error(`ID de usuário inválido: ${pedidoData.usuarioId}`);
       }
 
+      await this.validarEstoqueItens(pedidoData.itens);
+
       const pedido = {
         usuarioId: new ObjectId(pedidoData.usuarioId),
         itens: pedidoData.itens.map(item => ({
@@ -62,6 +102,48 @@ class Pedido {
       return resultado.insertedId;
     } catch (error) {
       this.logger.error(`Erro ao inserir pedido: ${error.message}`, error);
+      throw error;
+    }
+  }
+
+  async finalizarPedido(id) {
+    try {
+      if (!ObjectId.isValid(id)) {
+        throw new Error(`ID inválido: ${id}`);
+      }
+
+      const collection = await this.getCollection();
+      const objectId = new ObjectId(id);
+      const pedido = await collection.findOne({ _id: objectId });
+
+      if (!pedido) {
+        throw new Error(`Pedido não encontrado com ID: ${id}`);
+      }
+
+      if (pedido.status === 'finalizado') {
+        return pedido;
+      }
+
+      if (pedido.status === 'cancelado') {
+        throw new Error('Pedido cancelado não pode ser finalizado');
+      }
+
+      await this.atualizarEstoqueAoFinalizar(pedido.itens);
+
+      await collection.updateOne(
+        { _id: objectId },
+        {
+          $set: {
+            status: 'finalizado',
+            dataAtualizacao: new Date(),
+            dataFinalizacao: new Date()
+          }
+        }
+      );
+
+      return await collection.findOne({ _id: objectId });
+    } catch (error) {
+      this.logger.error(`Erro ao finalizar pedido: ${error.message}`, error);
       throw error;
     }
   }
@@ -108,7 +190,7 @@ class Pedido {
 
   async buscarPorStatus(status) {
     try {
-      const statusValidos = ['pendente', 'processando', 'enviado', 'entregue', 'cancelado'];
+      const statusValidos = ['pendente', 'processando', 'finalizado', 'enviado', 'entregue', 'cancelado'];
       
       if (!statusValidos.includes(status)) {
         throw new Error(`Status inválido. Valores aceitos: ${statusValidos.join(', ')}`);
@@ -132,6 +214,10 @@ class Pedido {
       
       if (!ObjectId.isValid(idString)) {
         throw new Error(`ID inválido: ${idString}`);
+      }
+
+      if (novoStatus === 'finalizado') {
+        return await this.finalizarPedido(idString);
       }
 
       const statusValidos = ['pendente', 'processando', 'enviado', 'entregue', 'cancelado'];

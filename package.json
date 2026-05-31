@@ -5,14 +5,16 @@
   "main": "src/index.js",
   "type": "commonjs",
   "scripts": {
-    "start": "node src/index.js",
-    "dev": "node src/index.js",
+    "start": "node src/server.js",
+    "dev": "node src/server.js",
     "test": "node tests/test.js"
   },
   "keywords": ["ecommerce", "mongodb", "nodejs"],
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "express": "^4.21.2",
+    "express-session": "^1.18.1",
     "mongodb": "^6.0.0"
   },
   "devDependencies": {}
